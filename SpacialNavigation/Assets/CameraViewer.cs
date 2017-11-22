@@ -1,38 +1,52 @@
 ﻿//Author: Dustin Grady
 //Purpose: Attempt to identify objects (using a camera) and replace them with virtual objects within a virtual space
-//Status: Unfinished/ in development
+//Status: Beginning to be able to sense objects in high contrast (background white, objects black, etc)
 
 // Starts the default camera and assigns the texture to the current renderer
 using UnityEngine;
 using System.Collections;
 using System.Collections.Generic;
 
-public class CameraViewer : MonoBehaviour
-{
+public class CameraViewer : MonoBehaviour{
+	WebCamTexture webcamTexture;
+	public Texture aTexture;
 	private int cellWidth = 64;
 	private int cellHeight = 48;
+	private int gridSize = 10;
 	private int totalCells;
+	private bool drawBox = false; //Used to draw box around detected objects
 	private bool testFlag = false; //Enable for test output
+	private bool cycleComplete = true; //Acts as a 'lock' when processing frames
 	private bool finishedGenerating = false; //Used as a 'lock' to allow us to fully analyze a frame before beginning the next
 	private double[,] resultValues; //2D array to store our results (on a per-frame basis)
+	private float boxPosX; //Position of box used as visual aid when identifying objects
+	private float boxPosY;
+	private List<Rect> rectBoxes = new List<Rect>();
 	private Color[] pixelChunk; //Flattened array of (r,g,b) pixel values
 	private Color colors;
-	WebCamTexture webcamTexture;
+	Vector2Int[] validMoves = new Vector2Int[] {
+		new Vector2Int (-1, 0),
+		new Vector2Int (1, 0),
+		new Vector2Int (0, -1),
+		new Vector2Int (0, 1)
+	} ; //List of valid moves we can perform on our grid
 
 	/*Initialize values*/
-	void Start()
-	{
+	void Start(){
 		webcamTexture = new WebCamTexture();
 		Renderer renderer = GetComponent<Renderer>();
 		renderer.material.mainTexture = webcamTexture;
-		webcamTexture.Play ();			
+		webcamTexture.Play ();
 	}
 
 	void Update(){
 		if(testFlag){
 			TestFunction (); //For debugging/ testing
 		}
-		CellGenerator();
+		if(cycleComplete){
+			rectBoxes.Clear ();
+			CellGenerator();
+		}
 	}
 
 	//Struct to allow us to return values from AnalyzeImage function (because apparently Unity doesn't like tuples!)
@@ -41,7 +55,7 @@ public class CameraViewer : MonoBehaviour
 		public double avgGreenVal;
 		public double avgBlueVal;
 	}
-		
+
 	/*Allows us to verify that the corner pixels are updating when new colors are presented*/
 	void TestFunction(){
 		Debug.Log("Bottom left: " + webcamTexture.GetPixel (0, 0)); //Testing
@@ -52,28 +66,28 @@ public class CameraViewer : MonoBehaviour
 
 	/*Break current frame into a series of 'pixel-sized blocks'*/
 	void CellGenerator(){
-		Color[,] resultValues = new Color[10,10];
+		cycleComplete = false; //We are now in a cycle, do not allow update to call us until finished
+		Color[,] resultValues = new Color[gridSize,gridSize];
 		int xCoord = -1;
 		int yCoord = -1;
-		//if (finishedGenerating == false) {
-			for (int x = 0; x < webcamTexture.width; x += cellWidth) {
-				xCoord++;
-				for (int y = 0; y < webcamTexture.height; y += cellHeight) {
-					yCoord++;
-					if (testFlag) {
-						Debug.Log ("xCoord: " + xCoord);
-						Debug.Log ("yCoord: " + yCoord);
-					}
-					pixelChunk = webcamTexture.GetPixels (x, y, cellWidth, cellHeight); //x and y are starting coords of where the pixelChunk will be referenced (left->right / top->bottom)
-					Color colors = new Color((float)AveragePixelChunk(pixelChunk).avgRedVal, (float)AveragePixelChunk(pixelChunk).avgGreenVal, (float)AveragePixelChunk(pixelChunk).avgBlueVal);
-					resultValues[xCoord,yCoord] = colors;
+		for (int x = 0; x < webcamTexture.width; x += cellWidth) {
+			xCoord++;
+			for (int y = 0; y < webcamTexture.height; y += cellHeight) {
+				yCoord++;
+				if (testFlag) {
+					//Debug.Log ("xCoord: " + xCoord);
+					//Debug.Log ("yCoord: " + yCoord);
 				}
-				yCoord = -1; //Reset
+				pixelChunk = webcamTexture.GetPixels (x, y, cellWidth, cellHeight); //x and y are starting coords of where the pixelChunk will be referenced (left->right / top->bottom)
+				Color colors = new Color((float)AveragePixelChunk(pixelChunk).avgRedVal, (float)AveragePixelChunk(pixelChunk).avgGreenVal, (float)AveragePixelChunk(pixelChunk).avgBlueVal);
+				resultValues[xCoord,yCoord] = colors;
+				//Debug.Log (resultValues[9,9]); //TESTING ERROR HERE
 			}
-			xCoord = -1; //Reset
-		//}
+			yCoord = -1; //Reset
+		}
+		xCoord = -1; //Reset
+
 		DetectObjects (resultValues); //Pass our 2D array to DetectObjects to attempt to identify objects in frame
-		finishedGenerating = true; //We have finished feeding and analyzing this frame, we can start processing another
 	}
 
 	/*Find average RGB values for a given 'pixel-sized chunk'*/
@@ -88,13 +102,9 @@ public class CameraViewer : MonoBehaviour
 		}
 		//Calculate average r,g,b values for this chunk
 		avgRed = avgRed / (cellWidth * cellHeight); 
-		avgGreen = avgGreen / (cellWidth * cellHeight);
-		avgBlue = avgBlue / (cellWidth * cellHeight);
-		if(testFlag){
-			Debug.Log ("Average Red: " + avgRed); 
-			Debug.Log ("Average Green: " + avgGreen); 
-			Debug.Log ("Average Blue: " + avgBlue); 
-		}
+		avgGreen = avgGreen / (cellWidth * cellHeight); 
+		avgBlue = avgBlue / (cellWidth * cellHeight); 
+
 		RGBValues rgb = new RGBValues(); //Create reference to our struct
 		rgb.avgRedVal = avgRed; //Add average values to struct
 		rgb.avgGreenVal = avgGreen;
@@ -104,26 +114,71 @@ public class CameraViewer : MonoBehaviour
 
 	/*Compare neighboring cells for similar rgb values to detect an 'object'*/
 	void DetectObjects(Color[,] inputValues){
-		double toleranceThreshold = 0.0015; //Tolerance we will allow when comparing neighbors
-		Debug.Log ("Bottom left: " + inputValues[0,0]);//Testing bottom left cell
-		Debug.Log ("Top left: " + inputValues[0,9]);//Testing top left cell
-		Debug.Log ("Bottom right: " + inputValues[9,0]);//Testing bottom right cell
-		Debug.Log ("Top right: " + inputValues[9,9]); //Testing top right cell
+		double toleranceThreshold = 0.15; //Tolerance we will allow when comparing neighbors
+		int requiredNeighbors = 5;
+
+		//Compare rgb values between all cells and their neighbors
+		for(int y = 0; y < gridSize; y++){
+			for(int x = 0; x < gridSize; x++){
+				List<Vector2Int> neighbors = getNeighbors (new Vector2Int (x, y)); //Get neighbors of current node
+				foreach (var neighbor in neighbors) { //Compare neighbors average rgb to that of current node
+					if (!checkTolerance (inputValues [x, y], inputValues [neighbor.x, neighbor.y], toleranceThreshold)) { //If it doesn't share common values with it's neighbors
+						boxPosX = (x * (Screen.width/gridSize));
+						boxPosY = (y * (Screen.height/gridSize));
+
+						//boxPosX = (x * (Screen.width/gridSize));
+						//boxPosY = (y * (Screen.height/gridSize));
+						rectBoxes.Add(new Rect(boxPosX, boxPosY, Screen.width/gridSize, Screen.height/gridSize));
+						drawBox = true;
+					}
+					else {
+						//drawBox = false;
+					}
+				}
+			}
+		}
+		cycleComplete = true;
 	}
 
-	/*Function to take a static picture and save to HDD before processing (too slow)*/
-	/*
-	void TakePicture(){
-		string savePath = "C:/Temp/UnityTest";
-		int captureCounter = 0;
-		Texture2D snap = new Texture2D (webcamTexture.width, webcamTexture.height);
-		snap.SetPixels (webcamTexture.GetPixels());
-		snap.Apply ();
+	/*Used as a visual aid to draw rectangle around detected objects*/
+	void OnGUI(){
+		if (drawBox) {
+			foreach (var rect in rectBoxes) {
+				GUI.DrawTexture (rect, aTexture, ScaleMode.ScaleAndCrop, true, 1.0f, Color.red, 1.0f, 0);
+			}
+		} 
+	}
 
-		System.IO.File.WriteAllBytes (savePath + captureCounter.ToString () + ".png", snap.EncodeToPNG ());
-		++captureCounter;
-		//Debug.Log(webcamTexture.GetPixels());
-		//Debug.Log(webcamTexture.GetPixel(0,0));
+	/*Gets neighbors of passed in node*/
+	List <Vector2Int> getNeighbors(Vector2Int position){
+		List<Vector2Int> neighbors = new List<Vector2Int> ();
+		foreach (var move in validMoves) {
+			Vector2Int neighbor = position + move;
+			if (neighbor.x < 0 || neighbor.y < 0 || neighbor.x >= gridSize || neighbor.y >= gridSize) { //If we are out of bounds
+				//Do nothing
+			}  else {
+				neighbors.Add (neighbor);
+			}
+		}
+		return neighbors;
+	}
+
+	bool checkTolerance(Color firstValue, Color secondValue, double tolerance){
+		if (((firstValue.r + tolerance) >= secondValue.r || (firstValue.r - tolerance) >= secondValue.r) &&
+			((firstValue.g + tolerance) >= secondValue.g || (firstValue.g - tolerance) >= secondValue.g) && 
+			((firstValue.b + tolerance) >= secondValue.b || (firstValue.b - tolerance) >= secondValue.b)) {
+			return true;
+		}
+		return false;
+	}
+
+	/*Checks values to determine if their rgb values are within allowable range*/
+	/*
+	bool checkTolerance(double originalValue, double secondValue, double tolerance){
+		if ((originalValue + tolerance) >= secondValue || (originalValue - tolerance) >= secondValue) {
+			return true;
+		}
+		return false;
 	}
 	*/
 }
