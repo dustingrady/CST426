@@ -13,6 +13,8 @@ public class CameraViewer : MonoBehaviour{
 	private int cellWidth = 64;
 	private int cellHeight = 48;
 	private int gridSize = 10;
+	private int generationCount = 0;
+	private int generationDelay = 500;
 	private int totalCells;
 	private bool drawBox = false; //Used to draw box around detected objects
 	private bool testFlag = false; //Enable for test output
@@ -114,7 +116,7 @@ public class CameraViewer : MonoBehaviour{
 
 	/*Compare neighboring cells for similar rgb values to detect an 'object'*/
 	void DetectObjects(Color[,] inputValues){
-		double toleranceThreshold = 0.15; //Tolerance we will allow when comparing neighbors
+		double toleranceThreshold = 0.50; //Tolerance we will allow when comparing neighbors
 		int requiredNeighbors = 5;
 
 		//Compare rgb values between all cells and their neighbors
@@ -123,16 +125,17 @@ public class CameraViewer : MonoBehaviour{
 				List<Vector2Int> neighbors = getNeighbors (new Vector2Int (x, y)); //Get neighbors of current node
 				foreach (var neighbor in neighbors) { //Compare neighbors average rgb to that of current node
 					if (!checkTolerance (inputValues [x, y], inputValues [neighbor.x, neighbor.y], toleranceThreshold)) { //If it doesn't share common values with it's neighbors
-						boxPosX = (x * (Screen.width/gridSize));
-						boxPosY = (y * (Screen.height/gridSize));
-
-						//boxPosX = (x * (Screen.width/gridSize));
-						//boxPosY = (y * (Screen.height/gridSize));
-						rectBoxes.Add(new Rect(boxPosX, boxPosY, Screen.width/gridSize, Screen.height/gridSize));
+						boxPosX = (x * ((Screen.width/4)/gridSize));
+						boxPosY = (y * ((Screen.height/4)/gridSize));
+						rectBoxes.Add(new Rect(boxPosX, boxPosY, (Screen.width/4)/gridSize, (Screen.height/4)/gridSize));
+						generationCount++;
+						if(generationCount >= generationDelay){ //Slow down object generation
+							GenerateObject((GameObject.FindGameObjectWithTag("MainCamera").transform.position.x)-(boxPosX/5), GameObject.FindGameObjectWithTag("MainCamera").transform.position.z); //Instantiate object
+							//Debug.Log("xPos: " + ((GameObject.FindGameObjectWithTag("MainCamera").transform.position.x) - boxPosX));
+							//Debug.Log("boxPosX: " + boxPosX);
+							//Debug.Log ("CamX: " + GameObject.FindGameObjectWithTag("MainCamera").transform.position.x);
+						}
 						drawBox = true;
-					}
-					else {
-						//drawBox = false;
 					}
 				}
 			}
@@ -144,6 +147,7 @@ public class CameraViewer : MonoBehaviour{
 	void OnGUI(){
 		if (drawBox) {
 			foreach (var rect in rectBoxes) {
+				//rectBoxes.Add (new Rect(0,0, Screen.width/gridSize, Screen.height/gridSize)); //TESTING
 				GUI.DrawTexture (rect, aTexture, ScaleMode.ScaleAndCrop, true, 1.0f, Color.red, 1.0f, 0);
 			}
 		} 
@@ -163,6 +167,7 @@ public class CameraViewer : MonoBehaviour{
 		return neighbors;
 	}
 
+	/*Checks values to determine if their rgb values are within allowable range*/
 	bool checkTolerance(Color firstValue, Color secondValue, double tolerance){
 		if (((firstValue.r + tolerance) >= secondValue.r || (firstValue.r - tolerance) >= secondValue.r) &&
 			((firstValue.g + tolerance) >= secondValue.g || (firstValue.g - tolerance) >= secondValue.g) && 
@@ -172,13 +177,12 @@ public class CameraViewer : MonoBehaviour{
 		return false;
 	}
 
-	/*Checks values to determine if their rgb values are within allowable range*/
-	/*
-	bool checkTolerance(double originalValue, double secondValue, double tolerance){
-		if ((originalValue + tolerance) >= secondValue || (originalValue - tolerance) >= secondValue) {
-			return true;
-		}
-		return false;
+	/* Instantiate a 3D object to place where a webcam object has been detected */
+	void GenerateObject(float xPos, float zPos){
+		GameObject cube = GameObject.CreatePrimitive(PrimitiveType.Cube);
+		cube.AddComponent<Rigidbody>();
+		cube.transform.localScale = new Vector3 (3.0f, 3.0f, 3.0f);
+		cube.transform.position = new Vector3(xPos, 0.2f, zPos + 50.0f); //Add offset to Z so that object appears infront of us and not at our Z pos
+		generationCount = 0;
 	}
-	*/
 }
