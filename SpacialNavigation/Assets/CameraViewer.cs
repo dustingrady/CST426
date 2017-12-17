@@ -14,7 +14,7 @@ public class CameraViewer : MonoBehaviour{
 	private int cellHeight = 48;
 	private int gridSize = 10;
 	private int generationCount = 0;
-	private int generationDelay = 500;
+	private int objectGenerationDelay = 500;
 	private int totalCells;
 	private bool drawBox = false; //Used to draw box around detected objects
 	private bool testFlag = false; //Enable for test output
@@ -116,7 +116,7 @@ public class CameraViewer : MonoBehaviour{
 
 	/*Compare neighboring cells for similar rgb values to detect an 'object'*/
 	void DetectObjects(Color[,] inputValues){
-		double toleranceThreshold = 0.50; //Tolerance we will allow when comparing neighbors
+		double toleranceThreshold = 0.35; //Tolerance we will allow when comparing neighbors
 		int requiredNeighbors = 5;
 
 		//Compare rgb values between all cells and their neighbors
@@ -129,7 +129,7 @@ public class CameraViewer : MonoBehaviour{
 						boxPosY = (y * ((Screen.height/4)/gridSize));
 						rectBoxes.Add(new Rect(boxPosX, boxPosY, (Screen.width/4)/gridSize, (Screen.height/4)/gridSize));
 						generationCount++;
-						if(generationCount >= generationDelay){ //Slow down object generation
+						if(generationCount >= objectGenerationDelay){ //Slow down object generation
 							GenerateObject((GameObject.FindGameObjectWithTag("MainCamera").transform.position.x)-(boxPosX/5), GameObject.FindGameObjectWithTag("MainCamera").transform.position.z); //Instantiate object
 							//Debug.Log("xPos: " + ((GameObject.FindGameObjectWithTag("MainCamera").transform.position.x) - boxPosX));
 							//Debug.Log("boxPosX: " + boxPosX);
